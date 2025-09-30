@@ -1,15 +1,22 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from streamlit_gsheets import GSheetsConnection
+from pyairtable import Table
 
 # --- CONFIG ---
-# Lien vers ton Google Sheet (⚠️ il doit être partagé en "Toute personne ayant le lien peut modifier")
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uCtnN1FN4eOPJ5iNvJPnSXGysFMbBM2Q43gN-r74AUg/export?format=csv"
+# ⚠️ Ta clé API doit être stockée dans les "Secrets" Streamlit Cloud sous le nom AIRTABLE_API_KEY
+AIRTABLE_API_KEY = st.secrets["AIRTABLE_API_KEY"]
 
-# Connexion à Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
+# ID de ta base Airtable (trouvé dans l’URL)
+BASE_ID = "appum6305mahJtMzR"
 
+# Nom exact de ta table Airtable
+TABLE_NAME = "SuiviRH"
+
+# Connexion à Airtable
+table = Table(AIRTABLE_API_KEY, BASE_ID, TABLE_NAME)
+
+# Configuration de la page Streamlit
 st.set_page_config(page_title="Suivi Collaborateurs", page_icon="📊", layout="centered")
 st.title("📊 Suivi Collaborateur - Bien-être & Objectifs")
 
@@ -43,21 +50,9 @@ if st.button("💾 Enregistrer"):
     if collaborateur.strip() == "":
         st.warning("⚠️ Merci de renseigner le nom du collaborateur")
     else:
-        # Lire les données existantes
-        try:
-            df_exist = conn.read(spreadsheet=SHEET_URL)
-            df_exist = df_exist.dropna(how="all")  # Nettoyer les lignes vides
-        except Exception:
-            df_exist = pd.DataFrame(columns=[
-                "Collaborateur", "Date", "Mois", "Entreprise", "Équipe", "Métier", "Manager",
-                "Commentaire", "Objectif Annuel", "Sous-objectif", "Avancement",
-                "Formation", "Réalisée", "Compétence"
-            ])
-
-        # Nouvelle ligne
-        new_row = pd.DataFrame([{
+        new_row = {
             "Collaborateur": collaborateur,
-            "Date": datetime.date.today(),
+            "Date": str(datetime.date.today()),
             "Mois": mois,
             "Entreprise": bien_etre["Entreprise"],
             "Équipe": bien_etre["Équipe"],
@@ -70,18 +65,14 @@ if st.button("💾 Enregistrer"):
             "Formation": formation,
             "Réalisée": realisee,
             "Compétence": competence
-        }])
-
-        # Fusionner + écrire dans Google Sheet
-        df_final = pd.concat([df_exist, new_row], ignore_index=True)
-        conn.update(spreadsheet=SHEET_URL, data=df_final)
-
-        st.success("✅ Données enregistrées dans Google Sheets !")
+        }
+        table.create(new_row)
+        st.success("✅ Données enregistrées dans Airtable !")
 
 # --- Visualisation ---
 if st.checkbox("📈 Voir le suivi global"):
-    df = conn.read(spreadsheet=SHEET_URL)
-    df = df.dropna(how="all")
+    records = table.all()
+    df = pd.DataFrame([r["fields"] for r in records])
     st.dataframe(df)
 
     if not df.empty:
@@ -90,4 +81,5 @@ if st.checkbox("📈 Voir le suivi global"):
         st.line_chart(df_moy)
 
         st.subheader("Avancement des objectifs (%)")
-        st.bar_chart(df["Avancement"])
+        if "Avancement" in df.columns:
+            st.bar_chart(df["Avancement"])
