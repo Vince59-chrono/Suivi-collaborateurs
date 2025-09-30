@@ -1,35 +1,32 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import os
+from streamlit_gsheets import GSheetsConnection
 
-FICHIER = "suivi_collaborateurs.csv"
+# --- CONFIG ---
+# Lien vers ton Google Sheet (⚠️ il doit être partagé en "Toute personne ayant le lien peut modifier")
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1uCtnN1FN4eOPJ5iNvJPnSXGysFMbBM2Q43gN-r74AUg/export?format=csv"
 
-# Initialiser le fichier si inexistant
-if not os.path.exists(FICHIER):
-    df_init = pd.DataFrame(columns=[
-        "Date", "Mois", "Entreprise", "Équipe", "Métier", "Manager",
-        "Commentaire",
-        "Objectif Annuel", "Sous-objectif", "Avancement",
-        "Formation", "Réalisée", "Compétence"
-    ])
-    df_init.to_csv(FICHIER, index=False)
+# Connexion à Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 st.set_page_config(page_title="Suivi Collaborateurs", page_icon="📊", layout="centered")
 st.title("📊 Suivi Collaborateur - Bien-être & Objectifs")
 
-# Sélection du mois
-mois = st.selectbox("Mois", ["Janv", "Fév", "Mars", "Avril", "Mai", "Juin", 
-                             "Juil", "Août", "Sept", "Oct", "Nov", "Déc"])
+# --- Formulaire ---
+collaborateur = st.text_input("👤 Nom du collaborateur")
+mois = st.selectbox("📅 Mois", 
+                    ["Janv","Fév","Mars","Avril","Mai","Juin",
+                     "Juil","Août","Sept","Oct","Nov","Déc"])
 
-st.subheader("😊 Bien-être (1=Pas bien → 5=Très bien)")
+st.subheader("😊 Bien-être (1 = Pas bien → 5 = Très bien)")
 bien_etre = {
-    "Entreprise": st.slider("Comment te sens-tu dans l'entreprise ?", 1, 5, 3),
-    "Équipe": st.slider("Comment te sens-tu dans l'équipe ?", 1, 5, 3),
-    "Métier": st.slider("Comment te sens-tu dans ton métier ?", 1, 5, 3),
-    "Manager": st.slider("Comment te sens-tu avec ton manager ?", 1, 5, 3)
+    "Entreprise": st.slider("Entreprise ?", 1, 5, 3),
+    "Équipe": st.slider("Équipe ?", 1, 5, 3),
+    "Métier": st.slider("Métier ?", 1, 5, 3),
+    "Manager": st.slider("Manager ?", 1, 5, 3)
 }
-commentaire = st.text_area("Commentaires libres")
+commentaire = st.text_area("📝 Commentaires")
 
 st.subheader("🎯 Objectifs")
 objectif = st.text_input("Objectif annuel")
@@ -41,32 +38,56 @@ formation = st.text_input("Formation prévue")
 realisee = st.radio("Formation réalisée ?", ["Oui", "Non"])
 competence = st.text_input("Compétence ciblée")
 
-# Sauvegarde
+# --- Sauvegarde ---
 if st.button("💾 Enregistrer"):
-    data = {
-        "Date": datetime.date.today(),
-        "Mois": mois,
-        **bien_etre,
-        "Commentaire": commentaire,
-        "Objectif Annuel": objectif,
-        "Sous-objectif": sous_obj,
-        "Avancement": avancement,
-        "Formation": formation,
-        "Réalisée": realisee,
-        "Compétence": competence
-    }
-    df = pd.DataFrame([data])
-    df.to_csv(FICHIER, mode="a", header=False, index=False)
-    st.success("✅ Données enregistrées !")
+    if collaborateur.strip() == "":
+        st.warning("⚠️ Merci de renseigner le nom du collaborateur")
+    else:
+        # Lire les données existantes
+        try:
+            df_exist = conn.read(spreadsheet=SHEET_URL)
+            df_exist = df_exist.dropna(how="all")  # Nettoyer les lignes vides
+        except Exception:
+            df_exist = pd.DataFrame(columns=[
+                "Collaborateur", "Date", "Mois", "Entreprise", "Équipe", "Métier", "Manager",
+                "Commentaire", "Objectif Annuel", "Sous-objectif", "Avancement",
+                "Formation", "Réalisée", "Compétence"
+            ])
 
-# Visualisation des données
-if st.checkbox("📈 Voir le suivi"):
-    df = pd.read_csv(FICHIER)
+        # Nouvelle ligne
+        new_row = pd.DataFrame([{
+            "Collaborateur": collaborateur,
+            "Date": datetime.date.today(),
+            "Mois": mois,
+            "Entreprise": bien_etre["Entreprise"],
+            "Équipe": bien_etre["Équipe"],
+            "Métier": bien_etre["Métier"],
+            "Manager": bien_etre["Manager"],
+            "Commentaire": commentaire,
+            "Objectif Annuel": objectif,
+            "Sous-objectif": sous_obj,
+            "Avancement": avancement,
+            "Formation": formation,
+            "Réalisée": realisee,
+            "Compétence": competence
+        }])
+
+        # Fusionner + écrire dans Google Sheet
+        df_final = pd.concat([df_exist, new_row], ignore_index=True)
+        conn.update(spreadsheet=SHEET_URL, data=df_final)
+
+        st.success("✅ Données enregistrées dans Google Sheets !")
+
+# --- Visualisation ---
+if st.checkbox("📈 Voir le suivi global"):
+    df = conn.read(spreadsheet=SHEET_URL)
+    df = df.dropna(how="all")
     st.dataframe(df)
 
     if not df.empty:
-        st.subheader("Évolution du bien-être")
-        st.line_chart(df[["Entreprise", "Équipe", "Métier", "Manager"]])
+        st.subheader("Évolution du bien-être (moyenne)")
+        df_moy = df.groupby("Mois")[["Entreprise", "Équipe", "Métier", "Manager"]].mean()
+        st.line_chart(df_moy)
 
         st.subheader("Avancement des objectifs (%)")
         st.bar_chart(df["Avancement"])
