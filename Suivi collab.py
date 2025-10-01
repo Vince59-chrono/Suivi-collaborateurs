@@ -1,37 +1,28 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from pyairtable import Table
+from supabase import create_client, Client
 
 # --- CONFIG ---
-# ⚠️ Ta clé API doit être stockée dans les "Secrets" Streamlit Cloud sous le nom AIRTABLE_API_KEY
-AIRTABLE_API_KEY = st.secrets["AIRTABLE_API_KEY"]
+url: str = st.secrets["SUPABASE_URL"]
+key: str = st.secrets["SUPABASE_KEY"]
+supabase: Client = create_client(url, key)
 
-# ID de ta base Airtable (trouvé dans l’URL)
-BASE_ID = "appum6305mahJtMzR"
-
-# Nom exact de ta table Airtable
-TABLE_NAME = "SuiviRH"
-
-# Connexion à Airtable
-table = Table(AIRTABLE_API_KEY, BASE_ID, TABLE_NAME)
-
-# Configuration de la page Streamlit
 st.set_page_config(page_title="Suivi Collaborateurs", page_icon="📊", layout="centered")
 st.title("📊 Suivi Collaborateur - Bien-être & Objectifs")
 
 # --- Formulaire ---
 collaborateur = st.text_input("👤 Nom du collaborateur")
-mois = st.selectbox("📅 Mois", 
+mois = st.selectbox("📅 Mois",
                     ["Janv","Fév","Mars","Avril","Mai","Juin",
                      "Juil","Août","Sept","Oct","Nov","Déc"])
 
 st.subheader("😊 Bien-être (1 = Pas bien → 5 = Très bien)")
 bien_etre = {
-    "Entreprise": st.slider("Entreprise ?", 1, 5, 3),
-    "Équipe": st.slider("Équipe ?", 1, 5, 3),
-    "Métier": st.slider("Métier ?", 1, 5, 3),
-    "Manager": st.slider("Manager ?", 1, 5, 3)
+    "entreprise": st.slider("Entreprise ?", 1, 5, 3),
+    "equipe": st.slider("Équipe ?", 1, 5, 3),
+    "metier": st.slider("Métier ?", 1, 5, 3),
+    "manager": st.slider("Manager ?", 1, 5, 3)
 }
 commentaire = st.text_area("📝 Commentaires")
 
@@ -50,36 +41,46 @@ if st.button("💾 Enregistrer"):
     if collaborateur.strip() == "":
         st.warning("⚠️ Merci de renseigner le nom du collaborateur")
     else:
-        new_row = {
-            "Collaborateur": collaborateur,
-            "Date": str(datetime.date.today()),
-            "Mois": mois,
-            "Entreprise": bien_etre["Entreprise"],
-            "Équipe": bien_etre["Équipe"],
-            "Métier": bien_etre["Métier"],
-            "Manager": bien_etre["Manager"],
-            "Commentaire": commentaire,
-            "Objectif Annuel": objectif,
-            "Sous-objectif": sous_obj,
-            "Avancement": avancement,
-            "Formation": formation,
-            "Réalisée": realisee,
-            "Compétence": competence
+        data = {
+            "collaborateur": collaborateur,
+            "date": str(datetime.date.today()),
+            "mois": mois,
+            "entreprise": bien_etre["entreprise"],
+            "equipe": bien_etre["equipe"],
+            "metier": bien_etre["metier"],
+            "manager": bien_etre["manager"],
+            "commentaire": commentaire,
+            "objectif": objectif,
+            "sous_obj": sous_obj,
+            "avancement": avancement,
+            "formation": formation,
+            "realisee": realisee,
+            "competence": competence
         }
-        table.create(new_row)
-        st.success("✅ Données enregistrées dans Airtable !")
+        supabase.table("suivi").insert(data).execute()
+        st.success("✅ Données enregistrées dans Supabase !")
 
 # --- Visualisation ---
 if st.checkbox("📈 Voir le suivi global"):
-    records = table.all()
-    df = pd.DataFrame([r["fields"] for r in records])
-    st.dataframe(df)
+    response = supabase.table("suivi").select("*").execute()
+    df = pd.DataFrame(response.data)
+    
+    if df.empty:
+        st.info("ℹ️ Aucune donnée enregistrée pour le moment.")
+    else:
+        st.dataframe(df)
 
-    if not df.empty:
         st.subheader("Évolution du bien-être (moyenne)")
-        df_moy = df.groupby("Mois")[["Entreprise", "Équipe", "Métier", "Manager"]].mean()
+        df_moy = df.groupby("mois")[["entreprise", "equipe", "metier", "manager"]].mean()
         st.line_chart(df_moy)
 
         st.subheader("Avancement des objectifs (%)")
-        if "Avancement" in df.columns:
-            st.bar_chart(df["Avancement"])
+        if "avancement" in df.columns:
+            st.bar_chart(df["avancement"])
+
+        # Export Excel
+        st.subheader("📂 Exporter les données")
+        fichier_export = "export_suivi.xlsx"
+        df.to_excel(fichier_export, index=False)
+        with open(fichier_export, "rb") as f:
+            st.download_button("⬇️ Télécharger en Excel", f, file_name=fichier_export)
