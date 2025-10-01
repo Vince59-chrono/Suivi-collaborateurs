@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from supabase import create_client, Client
+from supabase import create_client
+
 
 # --- CONFIG ---
 url: str = st.secrets["SUPABASE_URL"]
@@ -84,3 +85,4 @@ if st.checkbox("📈 Voir le suivi global"):
         df.to_excel(fichier_export, index=False)
         with open(fichier_export, "rb") as f:
             st.download_button("⬇️ Télécharger en Excel", f, file_name=fichier_export)
+
